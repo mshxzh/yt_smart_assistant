@@ -33,8 +33,6 @@ if "previous_url" not in st.session_state:
     st.session_state.previous_url = None
 if "disabled_button" not in st.session_state:
     st.session_state.disabled_button = False  # Default to not disabled
-if "gemini_api_key" not in st.session_state:
-    st.session_state.gemini_api_key = None
 if "use_original_language" not in st.session_state:
     st.session_state.use_original_language = True  # Initialize language preference
 if "language_settings_disabled" not in st.session_state:
@@ -72,7 +70,6 @@ def main():
         st.session_state.condition_yt = condition_yt
     
     st.session_state.api_key_validated = True
-    st.session_state.gemini_api_key = 'AIzaSyCExi7D0Dzk4CPzlveF0js9il6Tq6C9DDY'
 
     # YouTube URL input
     st.text_input(
@@ -192,7 +189,7 @@ def main():
                             st.info(f"Using subtitles in {captions_lang}", icon=":material/closed_caption:")
                             
                             # Process subtitles
-                            summary = summarize_text(subtitles_text, chosen_language=lang_option, gemini_key=st.session_state.gemini_api_key)
+                            summary = summarize_text(subtitles_text, chosen_language=lang_option)
                             
                             st.session_state.summary = summary
                             st.session_state.previous_url = st.session_state[f"yt_{st.session_state.youtube_key}"]
@@ -210,15 +207,12 @@ def main():
                     col1, col2 = st.columns([2,1])
                     with col1:
                         if st.button("Re-generate Summary", type='secondary', key="regen_btn"):
-                            if not st.session_state.gemini_api_key:
-                                st.error("Please enter your Gemini API key in the sidebar")
-                                return
                             # Re-get subtitles and regenerate summary
                             captions = find_captions(st.session_state[f"yt_{st.session_state.youtube_key}"])
                             lang_list = list(captions.values())
                             if lang_list:
                                 subtitles_text = retrieve_subtitles(st.session_state[f"yt_{st.session_state.youtube_key}"], lang_list[0])
-                                summary = summarize_text(subtitles_text, chosen_language=lang_option, gemini_key=st.session_state.gemini_api_key)
+                                summary = summarize_text(subtitles_text, chosen_language=lang_option)
                                 st.session_state.summary = summary
 
                     st.markdown(f'''
