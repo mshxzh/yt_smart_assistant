@@ -3,6 +3,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langdetect import detect
 from typing import Literal
 
+from dotenv import load_dotenv, find_dotenv
+import os
+_ = load_dotenv(find_dotenv())  # read local .env file
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 def detect_language(text: str) -> str:
     """Detect the language of the input text.
@@ -47,7 +51,7 @@ def create_prompt() -> str:
     return prompt
 
 
-def summarize_text(input_text: str, chosen_language: str, gemini_key:str) -> str:
+def summarize_text(input_text: str, chosen_language: str) -> str:
     """
     Summarizes the given text using Gemini API.
 
@@ -72,7 +76,7 @@ def summarize_text(input_text: str, chosen_language: str, gemini_key:str) -> str
         prompt_template = ChatPromptTemplate.from_messages(
             [("system", system_template), ("user", "{input_text}")]
         )
-        llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash-001", google_api_key=gemini_key)
+        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", google_api_key=GEMINI_API_KEY)
 
         prompt = prompt_template.invoke({"detected_language": detected_language, "chosen_language": chosen_language, "input_text": input_text})
 
