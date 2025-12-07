@@ -6,7 +6,10 @@ import plotly.express as px
 import pandas as pd
 
 from src.media_processing import get_video_info, find_captions, retrieve_subtitles
-from src.comments_classification import fetch_top_comments_from_youtube, predict_sentiment, clean_text, clean_text_for_display
+from src.comments_classification import (
+    fetch_top_comments_from_youtube, predict_sentiment, clean_text, clean_text_for_display
+)
+from src.comments_clustering import cluster_comments, reduce_dimensions_for_plot
 from src.llm_actions import *
 from src.utils import *
 
@@ -38,6 +41,8 @@ if "language_settings_disabled" not in st.session_state:
     st.session_state.language_settings_disabled = False  # Initialize language settings disabled state
 if "comments_data" not in st.session_state:
     st.session_state.comments_data = None
+if "cluster_data" not in st.session_state:
+    st.session_state.cluster_data = None
 
 if "youtube_key" not in st.session_state:
     st.session_state.youtube_key = 1
@@ -48,6 +53,7 @@ if "condition_yt" not in st.session_state:
 def clear_outputs():
     st.session_state.summary = None
     st.session_state.comments_data = None
+    st.session_state.cluster_data = None
     
 
 def main():
@@ -87,15 +93,15 @@ def main():
         ''', unsafe_allow_html=True)
 
     # Check if previous URL changed to clear outputs
-    if st.session_state.summary is not None or st.session_state.comments_data is not None:
+    if st.session_state.summary is not None or st.session_state.comments_data is not None or st.session_state.cluster_data is not None:
         if (st.session_state.condition_yt and st.session_state.previous_url != st.session_state[f"yt_{st.session_state.youtube_key}"]):
             clear_outputs()
             st.session_state.disabled_button = False
             st.session_state.language_settings_disabled = False
 
     if st.session_state.condition_yt:
-        # Create tabs for Summary and Sentiment Analysis
-        tab_summary, tab_comments = st.tabs(["📝 Summary", "💬 Sentiment Analysis"])
+        # Create tabs for Summary, Sentiment Analysis, and Clustering
+        tab_summary, tab_comments, tab_clusters = st.tabs(["📝 Summary", "💬 Sentiment Analysis", "🔮 Comment Clusters"])
         
         # Callback function to disable the button and language settings
         def disable_summary():
@@ -368,6 +374,206 @@ def main():
                             <p style="margin: 5px 0 0 0; color: {color}; font-size: 12px;">{lang_flag} {emoji} {sentiment["label"].capitalize()} ({sentiment["score"]:.2%})</p>
                         </div>
                     ''', unsafe_allow_html=True)
+        
+        # ---------- CLUSTERING TAB ----------
+        with tab_clusters:
+            st.markdown('<p style="margin-bottom: 15px;"></p>', unsafe_allow_html=True)
+            
+            # Settings for clustering
+            with st.expander("Clustering Settings", expanded=True):
+                max_comments_cluster = st.slider(
+                    "Maximum comments to cluster", 
+                    min_value=20, max_value=1000, value=100, step=10,
+                    key="cluster_max_comments"
+                )
+                min_cluster_size = st.slider(
+                    "Min cluster size", 
+                    min_value=3, max_value=20, value=5, step=1,
+                    help="Minimum number of comments to form a cluster",
+                    key="cluster_min_size"
+                )
+            
+            # Get values from session state to ensure they persist through button click
+            current_max_comments = st.session_state.get("cluster_max_comments", 100)
+            current_min_cluster_size = st.session_state.get("cluster_min_size", 5)
+            
+            cluster_button = st.button("Cluster Comments", 
+                    type='primary', 
+                    use_container_width=True, 
+                    key="cluster_btn")
+            
+            # Cluster colors
+            CLUSTER_COLORS = [
+                "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7",
+                "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E9",
+                "#F8B500", "#00CED1", "#FF69B4", "#32CD32", "#FFD700"
+            ]
+            
+            if cluster_button:
+                video_url = st.session_state[f"yt_{st.session_state.youtube_key}"]
+                video_id_match = re.search(r'(?:v=|youtu\.be/)([a-zA-Z0-9_-]{11})', video_url)
+                
+                if not video_id_match:
+                    st.error("Could not extract video ID from URL")
+                else:
+                    video_id = video_id_match.group(1)
+                    
+                    with st.spinner("Fetching comments and computing embeddings..."):
+                        try:
+                            # Fetch comments using session state values
+                            comments = fetch_top_comments_from_youtube(video_id, max_comments=current_max_comments)
+                            
+                            if not comments:
+                                st.warning("No comments found for this video.")
+                            elif len(comments) < current_min_cluster_size:
+                                st.warning(f"Not enough comments ({len(comments)}) for clustering. Need at least {current_min_cluster_size}.")
+                            else:
+                                st.success(f"Fetched {len(comments)} comments")
+                                
+                                # Clean texts
+                                raw_texts = [c.get("text", "") for c in comments]
+                                analysis_texts = [clean_text(t) for t in raw_texts]
+                                display_texts = [clean_text_for_display(t) for t in raw_texts]
+                                
+                                # Filter out empty texts
+                                valid_data = [(disp, anal) for disp, anal in zip(display_texts, analysis_texts) if anal.strip()]
+                                
+                                if valid_data and len(valid_data) >= current_min_cluster_size:
+                                    display_texts, analysis_texts = zip(*valid_data)
+                                    
+                                    with st.spinner(f"Running HDBSCAN clustering (min_cluster_size={current_min_cluster_size})..."):
+                                        cluster_result = cluster_comments(
+                                            list(analysis_texts),
+                                            min_cluster_size=current_min_cluster_size
+                                        )
+                                        
+                                        # Pre-compute UMAP reduction to avoid recomputing on filter change
+                                        reduced_embeddings = None
+                                        if cluster_result["embeddings"] is not None and len(cluster_result["embeddings"]) > 5:
+                                            with st.spinner("Computing visualization..."):
+                                                try:
+                                                    reduced_embeddings = reduce_dimensions_for_plot(cluster_result["embeddings"])
+                                                except Exception:
+                                                    reduced_embeddings = None
+                                        
+                                        st.session_state.cluster_data = {
+                                            "display_texts": list(display_texts),
+                                            "analysis_texts": list(analysis_texts),
+                                            "labels": cluster_result["labels"],
+                                            "embeddings": cluster_result["embeddings"],
+                                            "reduced_embeddings": reduced_embeddings,
+                                            "n_clusters": cluster_result["n_clusters"],
+                                            "cluster_sizes": cluster_result["cluster_sizes"],
+                                            "settings": {
+                                                "min_cluster_size": current_min_cluster_size,
+                                                "max_comments": current_max_comments
+                                            }
+                                        }
+                                else:
+                                    st.warning("Not enough valid comments for clustering.")
+                                    
+                        except Exception as e:
+                            st.error(f"Error during clustering: {str(e)}")
+                            st.info("Make sure YOUTUBE_API_KEY is set in your environment variables.")
+            
+            # Display clustering results
+            if st.session_state.cluster_data is not None:
+                cluster_data = st.session_state.cluster_data
+                n_clusters = cluster_data["n_clusters"]
+                labels = cluster_data["labels"]
+                cluster_sizes = cluster_data["cluster_sizes"]
+                display_texts = cluster_data["display_texts"]
+                embeddings = cluster_data["embeddings"]
+                settings = cluster_data.get("settings", {})
+                
+                # Show settings used
+                used_min_cluster = settings.get("min_cluster_size", "?")
+                st.info(f"Clustered {len(display_texts)} comments with min_cluster_size={used_min_cluster}")
+                
+                if n_clusters == 0:
+                    st.warning("No clusters found. Try adjusting the parameters or adding more comments.")
+                else:
+                    st.markdown(f"### Found {n_clusters} Clusters")
+                    
+                    # Cluster distribution
+                    col_chart, col_table = st.columns([2, 1])
+                    
+                    with col_chart:
+                        # Prepare data for pie chart (exclude noise cluster -1)
+                        cluster_items = [(k, v) for k, v in cluster_sizes.items() if k >= 0]
+                        cluster_items.sort(key=lambda x: x[1], reverse=True)
+                        
+                        pie_labels = [f"Cluster {k+1}" for k, _ in cluster_items]
+                        pie_values = [v for _, v in cluster_items]
+                        pie_colors = [CLUSTER_COLORS[k % len(CLUSTER_COLORS)] for k, _ in cluster_items]
+                        
+                        # Add noise if present
+                        if -1 in cluster_sizes:
+                            pie_labels.append("Noise")
+                            pie_values.append(cluster_sizes[-1])
+                            pie_colors.append("#666666")
+                        
+                        fig = px.pie(
+                            values=pie_values,
+                            names=pie_labels,
+                            color_discrete_sequence=pie_colors,
+                            hole=0.4
+                        )
+                        fig.update_traces(
+                            textposition='inside',
+                            textinfo='percent',
+                            hovertemplate='%{label}<br>Count: %{value}<br>Percent: %{percent}<extra></extra>'
+                        )
+                        fig.update_layout(
+                            showlegend=True,
+                            legend=dict(orientation="h", yanchor="bottom", y=-0.3, xanchor="center", x=0.5, font=dict(size=10)),
+                            margin=dict(t=20, b=20, l=20, r=20),
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(0,0,0,0)',
+                            font=dict(color='white')
+                        )
+                        st.plotly_chart(fig, use_container_width=True)
+                    
+                    with col_table:
+                        table_items = [(k, v) for k, v in cluster_sizes.items()]
+                        table_items.sort(key=lambda x: (x[0] == -1, -x[1]))  # Noise last, then by size
+                        
+                        total = len(labels)
+                        table_data = {
+                            "Cluster": [f"Cluster {k+1}" if k >= 0 else "Noise" for k, _ in table_items],
+                            "#": [v for _, v in table_items],
+                            "%": [f"{100*v/total:.1f}%" for _, v in table_items]
+                        }
+                        df = pd.DataFrame(table_data)
+                        st.dataframe(df, hide_index=True, use_container_width=True)
+                    
+                    # 2D visualization with UMAP (use cached reduced embeddings)
+                    reduced = cluster_data.get("reduced_embeddings")
+                    if reduced is not None and len(reduced) > 0:
+                        st.markdown("### Cluster Visualization (UMAP)")
+                        
+                        # Create scatter plot
+                        plot_df = pd.DataFrame({
+                            'x': reduced[:, 0],
+                            'y': reduced[:, 1],
+                            'cluster': [f"Cluster {l+1}" if l >= 0 else "Noise" for l in labels],
+                            'text': [t[:100] + "..." if len(t) > 100 else t for t in display_texts]
+                        })
+                        
+                        fig_scatter = px.scatter(
+                            plot_df, x='x', y='y', color='cluster',
+                            hover_data={'text': True, 'x': False, 'y': False, 'cluster': True},
+                            color_discrete_sequence=CLUSTER_COLORS[:n_clusters] + ["#666666"]
+                        )
+                        fig_scatter.update_traces(marker=dict(size=8, opacity=0.7))
+                        fig_scatter.update_layout(
+                            xaxis_title="", yaxis_title="",
+                            paper_bgcolor='rgba(0,0,0,0)',
+                            plot_bgcolor='rgba(30,30,30,0.5)',
+                            font=dict(color='white'),
+                            legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5)
+                        )
+                        st.plotly_chart(fig_scatter, use_container_width=True) 
         
         st.divider() 
 

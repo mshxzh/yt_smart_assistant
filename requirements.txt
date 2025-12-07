@@ -17,3 +17,15 @@ rich==13.9.4
 
 # Visualization
 plotly>=5.18.0
+
+# ML/Embeddings
+sentence-transformers>=2.2.0
+torch>=2.0.0
+transformers>=4.30.0
+
+# Clustering
+hdbscan>=0.8.33
+umap-learn>=0.5.4
+
+# YouTube API
+google-api-python-client>=2.100.0
