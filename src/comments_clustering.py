@@ -7,25 +7,80 @@ import hdbscan
 from sklearn.decomposition import PCA
 import umap
 
-# ---------- Extract topics from comments ----------
-import nltk
-from nltk.corpus import stopwords
-from sklearn.feature_extraction.text import TfidfVectorizer
-
-# Download NLTK stopwords if not already
-nltk.download('stopwords')
-
-# Combine English and Russian stopwords
-EN_STOPWORDS = set(stopwords.words('english'))
-RU_STOPWORDS = set(stopwords.words('russian'))
-MULTI_STOPWORDS = EN_STOPWORDS.union(RU_STOPWORDS)
-
 # LaBSE model for multilingual embeddings
 LABSE_MODEL = "sentence-transformers/LaBSE"
 
 # ---------- Init models (lazy) ----------
 _labse_model = None
 _device = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+
+# ---------- Extract topics from comments ----------
+import ssl
+import nltk
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+# Fallback stopwords in case NLTK download fails (SSL issues on macOS)
+FALLBACK_EN_STOPWORDS = {
+    'i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves', 'you', "you're", "you've", 
+    "you'll", "you'd", 'your', 'yours', 'yourself', 'yourselves', 'he', 'him', 'his', 'himself',
+    'she', "she's", 'her', 'hers', 'herself', 'it', "it's", 'its', 'itself', 'they', 'them', 
+    'their', 'theirs', 'themselves', 'what', 'which', 'who', 'whom', 'this', 'that', "that'll",
+    'these', 'those', 'am', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has',
+    'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an', 'the', 'and', 'but', 'if', 'or',
+    'because', 'as', 'until', 'while', 'of', 'at', 'by', 'for', 'with', 'about', 'against',
+    'between', 'into', 'through', 'during', 'before', 'after', 'above', 'below', 'to', 'from',
+    'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under', 'again', 'further', 'then', 'once',
+    'here', 'there', 'when', 'where', 'why', 'how', 'all', 'each', 'few', 'more', 'most', 'other',
+    'some', 'such', 'no', 'nor', 'not', 'only', 'own', 'same', 'so', 'than', 'too', 'very', 's',
+    't', 'can', 'will', 'just', 'don', "don't", 'should', "should've", 'now', 'd', 'll', 'm',
+    'o', 're', 've', 'y', 'ain', 'aren', "aren't", 'couldn', "couldn't", 'didn', "didn't",
+    'doesn', "doesn't", 'hadn', "hadn't", 'hasn', "hasn't", 'haven', "haven't", 'isn', "isn't",
+    'ma', 'mightn', "mightn't", 'mustn', "mustn't", 'needn', "needn't", 'shan', "shan't",
+    'shouldn', "shouldn't", 'wasn', "wasn't", 'weren', "weren't", 'won', "won't", 'wouldn', "wouldn't"
+}
+FALLBACK_RU_STOPWORDS = {
+    'и', 'в', 'во', 'не', 'что', 'он', 'на', 'я', 'с', 'со', 'как', 'а', 'то', 'все', 'она',
+    'так', 'его', 'но', 'да', 'ты', 'к', 'у', 'же', 'вы', 'за', 'бы', 'по', 'только', 'её',
+    'мне', 'было', 'вот', 'от', 'меня', 'еще', 'нет', 'о', 'из', 'ему', 'теперь', 'когда',
+    'уже', 'вам', 'ни', 'быть', 'был', 'него', 'до', 'вас', 'нибудь', 'опять', 'уж', 'вам',
+    'ведь', 'там', 'потом', 'себя', 'ничего', 'ей', 'может', 'они', 'тут', 'где', 'есть',
+    'надо', 'ней', 'для', 'мы', 'тебя', 'их', 'чем', 'была', 'сам', 'чтоб', 'без', 'будто',
+    'чего', 'раз', 'тоже', 'себе', 'под', 'будет', 'ж', 'тогда', 'кто', 'этот', 'того',
+    'потому', 'этого', 'какой', 'совсем', 'ним', 'здесь', 'этом', 'один', 'почти', 'мой',
+    'тем', 'чтобы', 'нее', 'сейчас', 'были', 'куда', 'зачем', 'всех', 'можно', 'при', 'наконец',
+    'два', 'об', 'другой', 'хоть', 'после', 'над', 'больше', 'тот', 'через', 'эти', 'нас',
+    'про', 'всего', 'них', 'какая', 'много', 'разве', 'три', 'эту', 'моя', 'впрочем', 'хорошо',
+    'свою', 'этой', 'перед', 'иногда', 'лучше', 'чуть', 'том', 'нельзя', 'такой', 'им', 'более',
+    'всегда', 'конечно', 'всю', 'между', 'это', 'очень', 'видео', 'просто'
+}
+
+# Try to download and load NLTK stopwords, fall back if SSL fails
+def _load_stopwords():
+    try:
+        # Try to download with SSL verification
+        nltk.download('stopwords', quiet=True)
+        from nltk.corpus import stopwords
+        en_sw = set(stopwords.words('english'))
+        ru_sw = set(stopwords.words('russian'))
+        return en_sw, ru_sw
+    except Exception:
+        try:
+            # Try with unverified SSL context (macOS workaround)
+            ssl._create_default_https_context = ssl._create_unverified_context
+            nltk.download('stopwords', quiet=True)
+            from nltk.corpus import stopwords
+            en_sw = set(stopwords.words('english'))
+            ru_sw = set(stopwords.words('russian'))
+            return en_sw, ru_sw
+        except Exception:
+            # Use fallback stopwords
+            return FALLBACK_EN_STOPWORDS, FALLBACK_RU_STOPWORDS
+
+EN_STOPWORDS, RU_STOPWORDS = _load_stopwords()
+# Convert to list immediately - TfidfVectorizer requires a list, not a set
+MULTI_STOPWORDS = list(EN_STOPWORDS.union(RU_STOPWORDS))
 
 
 def init_labse_model(model_name: str = LABSE_MODEL):
@@ -199,3 +254,52 @@ def reduce_dimensions_for_plot(
     )
     reduced = reducer.fit_transform(emb_reduced)
     return reduced
+
+def top_keywords_per_cluster_nltk(texts, labels, top_n=10):
+    """
+    Returns top N keywords per cluster using TF-IDF with NLTK stopwords (English + Russian).
+    
+    Args:
+        texts: list of comment strings
+        labels: list of cluster labels (int, -1 = noise)
+        top_n: number of keywords per cluster
+    
+    Returns:
+        dict: {cluster_id: [top keywords]}
+    """
+    unique_labels = sorted(set(l for l in labels if l >= 0))
+    
+    if not unique_labels:
+        return {}
+
+    # MULTI_STOPWORDS is already a list (required by TfidfVectorizer)
+    vectorizer = TfidfVectorizer(
+        stop_words=MULTI_STOPWORDS,
+        lowercase=True,
+        ngram_range=(1, 2),  # unigrams + bigrams
+        max_features=10000,
+        min_df=1,
+        token_pattern=r'(?u)\b\w+\b'  # Include single-char tokens for non-English
+    )
+    
+    X = vectorizer.fit_transform(texts)
+    feature_names = vectorizer.get_feature_names_out()
+    
+    if len(feature_names) == 0:
+        return {label: [] for label in unique_labels}
+    
+    terms = np.array(feature_names)
+
+    cluster_keywords = {}
+    for label in unique_labels:
+        idx = [i for i, l in enumerate(labels) if l == label]
+        if not idx:
+            cluster_keywords[label] = []
+            continue
+        # Average TF-IDF scores for cluster
+        cluster_scores = X[idx].mean(axis=0).A1
+        top_indices = cluster_scores.argsort()[-top_n:][::-1]
+        top_terms = terms[top_indices]
+        cluster_keywords[label] = top_terms.tolist()
+    
+    return cluster_keywords
