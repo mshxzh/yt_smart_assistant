@@ -50,10 +50,16 @@ if "youtube_key" not in st.session_state:
 if "condition_yt" not in st.session_state:
     st.session_state.condition_yt = False
 
+# Comments cache: stores fetched comments to avoid re-downloading
+# Structure: {"video_id": str, "comments": list, "next_page_token": str|None}
+if "comments_cache" not in st.session_state:
+    st.session_state.comments_cache = None
+
 def clear_outputs():
     st.session_state.summary = None
     st.session_state.comments_data = None
     st.session_state.cluster_data = None
+    st.session_state.comments_cache = None  # Clear comments cache when video changes
     
 
 def main():
@@ -93,8 +99,12 @@ def main():
         ''', unsafe_allow_html=True)
 
     # Check if previous URL changed to clear outputs
-    if st.session_state.summary is not None or st.session_state.comments_data is not None or st.session_state.cluster_data is not None:
-        if (st.session_state.condition_yt and st.session_state.previous_url != st.session_state[f"yt_{st.session_state.youtube_key}"]):
+    # Only clear if previous_url is set AND different from current URL
+    current_url = st.session_state[f"yt_{st.session_state.youtube_key}"] if st.session_state.condition_yt else None
+    has_any_data = st.session_state.summary is not None or st.session_state.comments_data is not None or st.session_state.cluster_data is not None
+    
+    if has_any_data and st.session_state.previous_url is not None:
+        if current_url and st.session_state.previous_url != current_url:
             clear_outputs()
             st.session_state.disabled_button = False
             st.session_state.language_settings_disabled = False
@@ -223,7 +233,8 @@ def main():
             
             # Settings for sentiment analysis
             with st.expander("Analysis Settings", expanded=True):
-                max_comments = st.slider("Maximum comments to analyze", min_value=10, max_value=200, value=50, step=10)
+                max_comments = st.slider("Maximum comments to analyze", min_value=10, max_value=500, value=50, step=10)
+                display_cache_status()
             
             # Check if API key is available for YouTube
             analyze_sentiment_button = st.button("Analyze Sentiment", 
@@ -250,13 +261,13 @@ def main():
                     
                     with st.spinner("Fetching and analyzing comments..."):
                         try:
-                            # Fetch comments
-                            comments = fetch_top_comments_from_youtube(video_id, max_comments=max_comments)
+                            # Fetch comments (with caching)
+                            comments = get_cached_comments(video_id, max_comments=max_comments)
                             
                             if not comments:
                                 st.warning("No comments found for this video.")
                             else:
-                                st.success(f"Fetched {len(comments)} comments")
+                                st.success(f"Using {len(comments)} comments")
                                 
                                 # Clean texts: one for analysis, one for display
                                 raw_texts = [c.get("text", "") for c in comments]
@@ -272,6 +283,8 @@ def main():
                                     
                                     # Store display text with sentiments in session state
                                     st.session_state.comments_data = list(zip(display_texts, sentiments))
+                                    # Track URL to detect video changes
+                                    st.session_state.previous_url = st.session_state[f"yt_{st.session_state.youtube_key}"]
                                     
                         except Exception as e:
                             st.error(f"Error fetching comments: {str(e)}")
@@ -392,6 +405,7 @@ def main():
                     help="Minimum number of comments to form a cluster",
                     key="cluster_min_size"
                 )
+                display_cache_status()
             
             # Get values from session state to ensure they persist through button click
             current_max_comments = st.session_state.get("cluster_max_comments", 100)
@@ -420,15 +434,15 @@ def main():
                     
                     with st.spinner("Fetching comments and computing embeddings..."):
                         try:
-                            # Fetch comments using session state values
-                            comments = fetch_top_comments_from_youtube(video_id, max_comments=current_max_comments)
+                            # Fetch comments (with caching)
+                            comments = get_cached_comments(video_id, max_comments=current_max_comments)
                             
                             if not comments:
                                 st.warning("No comments found for this video.")
                             elif len(comments) < current_min_cluster_size:
                                 st.warning(f"Not enough comments ({len(comments)}) for clustering. Need at least {current_min_cluster_size}.")
                             else:
-                                st.success(f"Fetched {len(comments)} comments")
+                                st.success(f"Using {len(comments)} comments")
                                 
                                 # Clean texts
                                 raw_texts = [c.get("text", "") for c in comments]
@@ -484,6 +498,8 @@ def main():
                                                 "max_comments": current_max_comments
                                             }
                                         }
+                                        # Track URL to detect video changes
+                                        st.session_state.previous_url = st.session_state[f"yt_{st.session_state.youtube_key}"]
                                 else:
                                     st.warning("Not enough valid comments for clustering.")
                                     
