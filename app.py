@@ -9,7 +9,7 @@ from src.media_processing import get_video_info, find_captions, retrieve_subtitl
 from src.comments_classification import (
     fetch_top_comments_from_youtube, predict_sentiment, clean_text, clean_text_for_display
 )
-from src.comments_clustering import cluster_comments, reduce_dimensions_for_plot
+from src.comments_clustering import cluster_comments, reduce_dimensions_for_plot, top_keywords_per_cluster_nltk
 from src.llm_actions import *
 from src.utils import *
 
@@ -383,7 +383,7 @@ def main():
             with st.expander("Clustering Settings", expanded=True):
                 max_comments_cluster = st.slider(
                     "Maximum comments to cluster", 
-                    min_value=20, max_value=1000, value=100, step=10,
+                    min_value=20, max_value=500, value=100, step=10,
                     key="cluster_max_comments"
                 )
                 min_cluster_size = st.slider(
@@ -456,6 +456,20 @@ def main():
                                                 except Exception:
                                                     reduced_embeddings = None
                                         
+                                        # Extract top keywords per cluster
+                                        cluster_keywords = {}
+                                        if cluster_result["n_clusters"] > 0:
+                                            with st.spinner("Extracting keywords..."):
+                                                try:
+                                                    cluster_keywords = top_keywords_per_cluster_nltk(
+                                                        list(analysis_texts),
+                                                        cluster_result["labels"],
+                                                        top_n=10
+                                                    )
+                                                except Exception as kw_error:
+                                                    st.warning(f"Could not extract keywords: {kw_error}")
+                                                    cluster_keywords = {}
+                                        
                                         st.session_state.cluster_data = {
                                             "display_texts": list(display_texts),
                                             "analysis_texts": list(analysis_texts),
@@ -464,6 +478,7 @@ def main():
                                             "reduced_embeddings": reduced_embeddings,
                                             "n_clusters": cluster_result["n_clusters"],
                                             "cluster_sizes": cluster_result["cluster_sizes"],
+                                            "cluster_keywords": cluster_keywords,
                                             "settings": {
                                                 "min_cluster_size": current_min_cluster_size,
                                                 "max_comments": current_max_comments
@@ -546,6 +561,37 @@ def main():
                         }
                         df = pd.DataFrame(table_data)
                         st.dataframe(df, hide_index=True, use_container_width=True)
+                    
+                    # Top Keywords per Cluster
+                    cluster_keywords = cluster_data.get("cluster_keywords", {})
+                    if cluster_keywords:
+                        st.markdown("### Top Keywords per Cluster")
+                        
+                        # Sort clusters by size (largest first)
+                        sorted_clusters = sorted(
+                            [(k, v) for k, v in cluster_sizes.items() if k >= 0],
+                            key=lambda x: x[1], reverse=True
+                        )
+                        
+                        for cluster_id, size in sorted_clusters:
+                            keywords = cluster_keywords.get(cluster_id, [])
+                            if keywords:
+                                color = CLUSTER_COLORS[cluster_id % len(CLUSTER_COLORS)]
+                                
+                                # Create keyword tags
+                                keyword_tags = " ".join([
+                                    f'<span style="background-color: {color}22; color: {color}; padding: 4px 8px; border-radius: 12px; margin: 2px; display: inline-block; font-size: 13px; border: 1px solid {color}44;">{kw}</span>'
+                                    for kw in keywords[:8]  # Show top 8
+                                ])
+                                
+                                st.markdown(f'''
+                                    <div style="margin-bottom: 15px;">
+                                        <p style="color: {color}; font-weight: bold; margin-bottom: 5px;">
+                                            Cluster {cluster_id + 1} ({size} comments)
+                                        </p>
+                                        <div>{keyword_tags}</div>
+                                    </div>
+                                ''', unsafe_allow_html=True)
                     
                     # 2D visualization with UMAP (use cached reduced embeddings)
                     reduced = cluster_data.get("reduced_embeddings")
