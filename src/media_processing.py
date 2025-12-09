@@ -73,9 +73,7 @@ def find_captions(video_id: str) -> Dict[str, str]:
         for transcript in transcript_list:
             lang_code = transcript.language_code
             lang_name = transcript.language
-            # Add indicator if it's auto-generated
-            if transcript.is_generated:
-                lang_name = f"{lang_name} (auto-generated)"
+            
             captions[lang_code] = lang_name
         
         return captions
