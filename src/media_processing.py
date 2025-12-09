@@ -111,8 +111,8 @@ def retrieve_subtitles(video_id: str, selected_caption_language: str) -> str:
         target_transcript = None
         for transcript in transcript_list:
             lang_name = transcript.language
-            if transcript.is_generated:
-                lang_name = f"{lang_name} (auto-generated)"
+            # if transcript.is_generated:
+            #     lang_name = f"{lang_name} (auto-generated)"
             
             if lang_name == selected_caption_language:
                 target_transcript = transcript
