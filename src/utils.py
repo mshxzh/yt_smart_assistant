@@ -98,9 +98,9 @@ def style_css(background_image):
     
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <p class="liquid-glass-title">Youtube Smart Assistant</p>
-    <div class="small-text"><p style="text-align:center;">Get summaries from YouTube video subtitles, analyze comments and get sentiment analysis</p></div>
+    <div class="small-text"><p style="text-align:center;">Get summaries from YouTube video subtitles, get sentiment analysis and cluster comments.</p></div>
     <br>
-    <div class="small-text"><p style="text-align:center; font-size:15px; font-weight: bold">⚠️ Disclaimer: for educational purposes only! ⚠️</p></div>
+    <div class="small-text"><p style="text-align:center; font-size:15px; font-weight: bold">Disclaimer: for educational purposes only!</p></div>
 """
 
 def display_cache_status():
