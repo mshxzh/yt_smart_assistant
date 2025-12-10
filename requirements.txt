@@ -20,7 +20,7 @@ plotly>=5.18.0
 
 # ML/Embeddings
 sentence-transformers>=2.2.0
-torch>=2.0.0
+torch>=2.2
 transformers>=4.30.0
 
 # Clustering
