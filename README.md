@@ -38,7 +38,6 @@ Two options are available (choose based on deployment setting):
 ### 🚀 Smart Features
 - **Comment Caching**: Fetched comments are cached per video - no re-downloading when switching between analysis tabs
 - **Incremental Fetching**: Request more comments and only the additional ones are fetched (e.g., 50 → 100 only fetches 50 more)
-- **Password Protection**: Secure access to the application via `.env` password
 - **Video Metadata Display**: Beautiful card showing video title, channel, publish date, and description preview
 - **Error Handling**: Graceful fallbacks for missing captions, SSL issues, and API failures
 
@@ -59,7 +58,6 @@ Create `.env`:
 ```env
 GEMINI_API_KEY=your_gemini_api_key
 YOUTUBE_API_KEY=your_youtube_api_key
-APP_PASSWORD=your_access_password
 ```
 
 ## Run the apps 💡
